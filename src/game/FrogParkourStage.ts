@@ -269,7 +269,7 @@ export class FrogParkourStage {
         this.canDoubleHop = false;
         this.vx = Math.max(this.vx, 220);
         this.vy = -440;
-        this.popups.push({ x: this.frogX, y: this.frogY - 24, text: 'DUBBEL HOP!', color: '#bae6fd', life: 0 });
+        this.popups.push({ x: this.frogX, y: this.frogY - 24, text: 'DOUBLE HOP!', color: '#bae6fd', life: 0 });
         this.callbacks.onJump();
       }
     }
@@ -453,18 +453,65 @@ export class FrogParkourStage {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
-    // Distant jungle silhouettes
+    // Distant jungle silhouettes & mist
     ctx.fillStyle = 'rgba(2, 44, 34, 0.55)';
     for (let i = 0; i < 10; i++) {
-      const bx = ((i * 180 - this.cameraX * 0.2) % (width + 240)) - 120;
+      const bx = ((i * 180 - this.cameraX * 0.18) % (width + 260)) - 130;
       ctx.beginPath();
-      ctx.arc(bx, height - 70, 75, 0, Math.PI * 2);
+      ctx.arc(bx, height - 74, 78, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Water strip at bottom
-    ctx.fillStyle = 'rgba(14, 165, 233, 0.5)';
-    ctx.fillRect(0, height - 38, width, 38);
+    // Distant swaying reeds & cattails along pond bank
+    for (let i = 0; i < 18; i++) {
+      const rx = ((i * 95 - this.cameraX * 0.32) % (width + 180)) - 90;
+      const sway = Math.sin(this.clock * 1.8 + i * 0.9) * 5;
+      const reedH = 44 + (i % 3) * 18;
+      ctx.strokeStyle = 'rgba(22, 101, 52, 0.7)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(rx, height - 34);
+      ctx.quadraticCurveTo(rx + sway * 0.5, height - 34 - reedH * 0.55, rx + sway, height - 34 - reedH);
+      ctx.stroke();
+      if (i % 3 === 0) {
+        ctx.fillStyle = '#78350f';
+        ctx.beginPath();
+        ctx.ellipse(rx + sway * 0.9, height - 34 - reedH + 10, 3.2, 8, sway * 0.02, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Water strip & animated rippling highlights at bottom
+    const waterY = height - 40;
+    const waterGrad = ctx.createLinearGradient(0, waterY, 0, height);
+    waterGrad.addColorStop(0, 'rgba(14, 165, 233, 0.58)');
+    waterGrad.addColorStop(1, 'rgba(3, 105, 161, 0.85)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, waterY, width, 40);
+
+    // Rippling surface crest
+    ctx.strokeStyle = 'rgba(186, 230, 253, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let x = 0; x <= width; x += 14) {
+      const wy = waterY + Math.sin(x * 0.055 + this.clock * 3.4 - this.cameraX * 0.02) * 2.5;
+      if (x === 0) ctx.moveTo(x, wy);
+      else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+
+    // Inner water shimmer streaks
+    ctx.strokeStyle = 'rgba(224, 242, 254, 0.28)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const sx = ((i * 140 - this.cameraX * 0.45 + this.clock * 22) % (width + 160)) - 80;
+      const sy = waterY + 12 + (i % 3) * 8;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + 34 + (i % 2) * 16, sy);
+      ctx.stroke();
+    }
 
     ctx.save();
     ctx.translate(-this.cameraX, 0);
@@ -507,6 +554,45 @@ export class FrogParkourStage {
       ctx.roundRect(p.x, p.y, p.w, p.h, 10);
       ctx.fill();
       ctx.stroke();
+
+      // Platform surface details
+      if (p.kind === 'lily') {
+        // Lilypad leaf veins + notch + tiny lotus flower
+        ctx.strokeStyle = 'rgba(187, 247, 208, 0.55)';
+        ctx.lineWidth = 1.6;
+        const midX = p.x + p.w * 0.5;
+        const midY = p.y + p.h * 0.45;
+        for (const vx of [-0.3, -0.1, 0.12, 0.32]) {
+          ctx.beginPath();
+          ctx.moveTo(midX, midY);
+          ctx.lineTo(midX + p.w * vx, p.y + 4);
+          ctx.stroke();
+        }
+        // Tiny pink lotus blossom on right edge
+        const fx = p.x + p.w - 16;
+        const fy = p.y;
+        ctx.fillStyle = '#f472b6';
+        ctx.beginPath();
+        ctx.ellipse(fx - 4, fy - 3, 5, 3, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(fx + 4, fy - 3, 5, 3, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.arc(fx, fy - 4, 3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.kind === 'bouncy') {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p.x + 14, p.y + 5);
+        ctx.lineTo(p.x + p.w - 14, p.y + 5);
+        ctx.stroke();
+      } else if (p.kind === 'rock') {
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.35)';
+        ctx.beginPath();
+        ctx.roundRect(p.x + 8, p.y + 2, p.w * 0.45, 5, 3);
+        ctx.fill();
+      }
     }
 
     // Fireflies

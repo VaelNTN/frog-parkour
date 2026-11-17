@@ -57,7 +57,7 @@ export async function submitGlobalFrogScore(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         deviceId: payload.deviceId,
-        playerName: payload.playerName.trim() || 'Kikkerkoning',
+        playerName: payload.playerName.trim() || 'FrogKing',
         score: payload.score,
         meters: payload.meters,
         flies: payload.flies,

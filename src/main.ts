@@ -25,14 +25,20 @@ let optionsFromPlay = false;
 let stage: FrogParkourStage | null = null;
 let homeAnimId: number | null = null;
 let hsPollInterval: number | null = null;
+let hsHeadingTapCount = 0;
+let hsHeadingTapTimer: number | null = null;
 
 function renderFrogThumb(canvas: HTMLCanvasElement, skinId: number, size: number): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
+  const target = Math.round(size * dpr);
+  if (canvas.width !== target || canvas.height !== target) {
+    canvas.width = target;
+    canvas.height = target;
+  }
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
   drawCartoonFrog(ctx, size / 2, size * 0.56, size * 0.26, {
     skin: getFrogSkin(skinId),
     accessory: state.accessory,
@@ -46,80 +52,88 @@ function buildApp(): void {
       <div class="home-hero">
         <canvas id="home-frog-canvas" class="preview-canvas"></canvas>
         <h1 class="game-title">Frog Parkour</h1>
-        <p class="game-subtitle">
-          Houd ingedrukt om je kikker-sprong op te laden, tik in de lucht voor tong-grapple of dubbel-hop!
-        </p>
+        <p class="game-subtitle">Hold to jump, tap mid-air!</p>
         <div id="home-best-pill" class="best-pill hidden"></div>
       </div>
       <div class="home-actions">
-        <button id="btn-home-play" class="btn btn-primary">Play Parkour</button>
-        <button id="btn-home-options" class="btn btn-secondary">Kikker Skins</button>
-        <button id="btn-home-highscores" class="btn btn-secondary">Highscores</button>
+        <button id="btn-home-play" class="btn btn-primary">Play</button>
+        <button id="btn-home-options" class="btn btn-secondary">Frog Skins</button>
+        <button id="btn-home-highscores" class="btn btn-secondary">Leaderboard</button>
       </div>
     </section>
 
     <section id="screen-options" class="screen hidden">
       <div class="top-nav">
-        <button id="btn-options-back" class="btn btn-small">← Terug</button>
-        <h2 class="screen-heading">Kies je Kikker</h2>
+        <button id="btn-options-back" class="btn btn-small">← Back</button>
+        <h2 class="screen-heading">Frog Skins</h2>
         <span style="width:60px"></span>
       </div>
       <div class="options-scroll">
         <div>
-          <p class="section-label">Jouw Naam (voor Highscores)</p>
-          <input id="player-name-input" class="name-input" type="text" maxlength="20" placeholder="Kikkerkoning" />
+          <p class="section-label">Player Name</p>
+          <input id="player-name-input" class="name-input" type="text" maxlength="20" placeholder="FrogKing" />
         </div>
         <div>
-          <p class="section-label">Kikkerkleur</p>
+          <p class="section-label">Frog Color</p>
           <div id="frog-skin-grid" class="skin-grid"></div>
         </div>
         <div>
-          <p class="section-label">Accessoire</p>
+          <p class="section-label">Accessory</p>
           <div id="acc-chips" class="chip-row"></div>
         </div>
-        <button id="btn-options-start" class="btn btn-primary">Start Springen</button>
+        <button id="btn-options-start" class="btn btn-primary">Start Jumping</button>
       </div>
     </section>
 
     <section id="screen-game" class="screen game-screen hidden">
       <div class="game-top-bar">
-        <button id="btn-game-menu" class="btn btn-small">← Menu</button>
+        <button id="btn-game-menu" class="btn btn-small">Menu</button>
         <div style="display:flex;gap:8px;">
-          <button id="btn-game-options" class="btn btn-small">Kikker</button>
-          <button id="btn-game-sound" class="btn btn-small">Geluid: Aan</button>
+          <button id="btn-game-options" class="btn btn-small">Skins</button>
+          <button id="btn-game-sound" class="btn btn-small">🔊</button>
         </div>
       </div>
       <div class="hud-overlay">
         <div id="hud-score" class="hud-score">0 pts</div>
-        <div id="hud-sub" class="hud-sub">0.0 m • 0 vliegjes • Combo x1</div>
+        <div id="hud-sub" class="hud-sub">0.0 m • 0 flies • Combo x1</div>
       </div>
       <canvas id="game-canvas" class="game-canvas"></canvas>
       <div id="gameover-card" class="gameover-card hidden">
-        <div id="gameover-text" style="font-weight:800;font-size:1.1rem;">Plons in de vijver!</div>
-        <button id="btn-retry" class="btn btn-primary" style="padding:12px;">Opnieuw Proberen</button>
+        <div id="gameover-text" style="font-weight:800;font-size:1.1rem;">Splash!</div>
+        <button id="btn-retry" class="btn btn-primary" style="padding:12px;">Retry</button>
+        <div class="gameover-actions-row">
+          <button id="btn-go-menu" class="btn btn-secondary" style="padding:10px;font-size:0.9rem;">Menu</button>
+          <button id="btn-go-hs" class="btn btn-secondary" style="padding:10px;font-size:0.9rem;">Leaderboard</button>
+        </div>
       </div>
     </section>
 
     <section id="screen-highscores" class="screen hidden">
       <div class="top-nav">
-        <button id="btn-hs-back" class="btn btn-small">← Terug</button>
-        <h2 class="screen-heading">Highscores</h2>
-        <button id="btn-hs-refresh" class="btn btn-small">Ververs</button>
+        <button id="btn-hs-back" class="btn btn-small">← Back</button>
+        <h2 id="hs-heading" class="screen-heading">🏆 Leaderboard</h2>
+        <button id="btn-hs-refresh" class="btn btn-small">↻</button>
       </div>
+      <div id="hs-status-banner" class="hs-status-banner">📱 Offline Mode — Local Highscores</div>
       <div class="hs-tabs">
-        <button id="tab-hs-global" class="hs-tab active">Online Wereldwijd</button>
-        <button id="tab-hs-local" class="hs-tab">Lokaal (Top 50)</button>
+        <button id="tab-hs-global" class="hs-tab active">🌍 Global</button>
+        <button id="tab-hs-local" class="hs-tab">📱 Local</button>
       </div>
       <div id="server-box" class="server-box hidden">
-        <p class="section-label" style="margin:0;">Highscore Server URL</p>
+        <p class="section-label" style="margin:0;">Developer Endpoint URL</p>
         <div style="display:flex;gap:8px;">
-          <input id="server-url-input" class="name-input" type="url" placeholder="https://arcade-highscores-worker...workers.dev" />
-          <button id="btn-save-server" class="btn btn-small">Opslaan</button>
+          <input id="server-url-input" class="name-input" type="url" placeholder="https://example.com" />
+          <button id="btn-save-server" class="btn btn-small">Save</button>
         </div>
       </div>
       <div id="hs-list" class="hs-list"></div>
     </section>
   `;
+}
+
+function syncSoundButton(): void {
+  const btn = document.getElementById('btn-game-sound');
+  if (btn) btn.textContent = state.soundEnabled ? '🔊' : '🔇';
 }
 
 function showScreen(name: ScreenName): void {
@@ -146,21 +160,33 @@ function startHomePreview(): void {
   const canvas = document.getElementById('home-frog-canvas') as HTMLCanvasElement;
   const pill = document.getElementById('home-best-pill')!;
   if (state.bestScore > 0) {
-    pill.textContent = `Record: ${state.bestScore} pts (${state.bestMeters.toFixed(1)} m)`;
+    pill.textContent = `Best: ${state.bestScore} pts (${state.bestMeters.toFixed(1)} m)`;
     pill.classList.remove('hidden');
   } else {
     pill.classList.add('hidden');
   }
 
+  const size = 150;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const targetSize = Math.round(size * dpr);
+  if (canvas.width !== targetSize || canvas.height !== targetSize) {
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+  }
+  const ctx = canvas.getContext('2d');
+
   let phase = 0;
   const draw = () => {
     phase += 0.04;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = 150 * dpr;
-    canvas.height = 150 * dpr;
-    const ctx = canvas.getContext('2d');
+    const currentDpr = Math.min(window.devicePixelRatio || 1, 2);
+    const desired = Math.round(size * currentDpr);
+    if (canvas.width !== desired || canvas.height !== desired) {
+      canvas.width = desired;
+      canvas.height = desired;
+    }
     if (ctx) {
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
       drawCartoonFrog(ctx, 75, 84 - Math.abs(Math.sin(phase)) * 18, 34, {
         skin: getFrogSkin(state.skinId),
         accessory: state.accessory,
@@ -213,7 +239,7 @@ function renderOptions(): void {
 
 function startStage(): void {
   document.getElementById('gameover-card')!.classList.add('hidden');
-  document.getElementById('btn-game-sound')!.textContent = `Geluid: ${state.soundEnabled ? 'Aan' : 'Uit'}`;
+  syncSoundButton();
 
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
   if (!stage) {
@@ -223,7 +249,7 @@ function startStage(): void {
       {
         onHudUpdate: (score, meters, flies, combo) => {
           document.getElementById('hud-score')!.textContent = `${score} pts`;
-          document.getElementById('hud-sub')!.textContent = `${meters.toFixed(1)} m • ${flies} vliegjes • Combo x${combo}`;
+          document.getElementById('hud-sub')!.textContent = `${meters.toFixed(1)} m • ${flies} flies • Combo x${combo}`;
         },
         onJump: () => soundFX.playJump(),
         onTongue: () => soundFX.playTongue(),
@@ -232,7 +258,7 @@ function startStage(): void {
           soundFX.playSplash();
           recordFrogScore(state, score, meters, flies);
           document.getElementById('gameover-text')!.textContent =
-            score >= state.bestScore ? `Nieuw record: ${score} pts (${meters.toFixed(1)}m)!` : `Score: ${score} pts (${meters.toFixed(1)}m)`;
+            score >= state.bestScore ? `New Record: ${score} pts (${meters.toFixed(1)}m)!` : `Score: ${score} pts (${meters.toFixed(1)}m)`;
           document.getElementById('gameover-card')!.classList.remove('hidden');
           if (state.apiBaseUrl && score > 0) {
             submitGlobalFrogScore(state.apiBaseUrl, {
@@ -259,18 +285,23 @@ function stopStage(): void {
   stage?.stop();
 }
 
+function updateHsStatusBanner(online: boolean): void {
+  const banner = document.getElementById('hs-status-banner');
+  if (!banner) return;
+  banner.textContent = online ? '🌐 Online Leaderboard' : '📱 Offline Mode — Local Highscores';
+}
+
 async function refreshHighscoresView(): Promise<void> {
   const list = document.getElementById('hs-list')!;
-  const serverBox = document.getElementById('server-box')!;
   (document.getElementById('server-url-input') as HTMLInputElement).value = state.apiBaseUrl;
 
   document.getElementById('tab-hs-global')?.classList.toggle('active', hsMode === 'global');
   document.getElementById('tab-hs-local')?.classList.toggle('active', hsMode === 'local');
 
   if (hsMode === 'local') {
-    serverBox.classList.add('hidden');
+    updateHsStatusBanner(Boolean(state.apiBaseUrl));
     if (state.highscores.length === 0) {
-      list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:30px;">Nog geen parkour-scores. Spring erop los!</p>`;
+      list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:30px;">No scores yet. Start hopping!</p>`;
       return;
     }
     list.innerHTML = state.highscores
@@ -291,17 +322,18 @@ async function refreshHighscoresView(): Promise<void> {
     return;
   }
 
-  serverBox.classList.toggle('hidden', Boolean(state.apiBaseUrl));
   if (!state.apiBaseUrl) {
-    list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:24px;">Vul je Worker-URL in voor online wereldranglijsten (lokaal werkt altijd offline).</p>`;
+    updateHsStatusBanner(false);
+    list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:24px;">Playing offline. Switch to Local to view your personal records!</p>`;
     return;
   }
 
   try {
     const res = await fetchGlobalFrogHighscores(state.apiBaseUrl, state.deviceId, 50);
+    updateHsStatusBanner(true);
     const entries: GlobalFrogEntry[] = res.entries || [];
     if (entries.length === 0) {
-      list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:30px;">Nog geen online scores. Word de eerste!</p>`;
+      list.innerHTML = `<p style="text-align:center;color:var(--muted);margin-top:30px;">No online scores yet. Be the first!</p>`;
       return;
     }
     list.innerHTML = entries
@@ -320,7 +352,8 @@ async function refreshHighscoresView(): Promise<void> {
       )
       .join('');
   } catch {
-    list.innerHTML = `<p style="text-align:center;color:#fca5a5;margin-top:24px;">Offline of server niet bereikbaar. Bekijk tab Lokaal!</p>`;
+    updateHsStatusBanner(false);
+    list.innerHTML = `<p style="text-align:center;color:#fca5a5;margin-top:24px;">Offline or leaderboard unreachable. Check the Local tab!</p>`;
   }
 }
 
@@ -341,8 +374,16 @@ async function init(): Promise<void> {
 
   document.getElementById('btn-options-back')!.onclick = () => showScreen(optionsFromPlay ? 'game' : 'home');
   document.getElementById('btn-options-start')!.onclick = () => showScreen('game');
-  document.getElementById('player-name-input')!.addEventListener('input', (e) => {
-    state.playerName = (e.target as HTMLInputElement).value.slice(0, 20) || 'Kikkerkoning';
+
+  const nameInput = document.getElementById('player-name-input') as HTMLInputElement;
+  nameInput.addEventListener('input', (e) => {
+    state.playerName = (e.target as HTMLInputElement).value.slice(0, 20);
+    saveFrogState(state);
+  });
+  nameInput.addEventListener('blur', (e) => {
+    const clean = (e.target as HTMLInputElement).value.trim().slice(0, 20) || 'FrogKing';
+    state.playerName = clean;
+    (e.target as HTMLInputElement).value = clean;
     saveFrogState(state);
   });
 
@@ -356,15 +397,28 @@ async function init(): Promise<void> {
     state.soundEnabled = !state.soundEnabled;
     soundFX.enabled = state.soundEnabled;
     saveFrogState(state);
-    document.getElementById('btn-game-sound')!.textContent = `Geluid: ${state.soundEnabled ? 'Aan' : 'Uit'}`;
+    syncSoundButton();
   };
   document.getElementById('btn-retry')!.onclick = () => {
     document.getElementById('gameover-card')!.classList.add('hidden');
     stage?.resetGame();
   };
+  document.getElementById('btn-go-menu')!.onclick = () => showScreen('home');
+  document.getElementById('btn-go-hs')!.onclick = () => showScreen('highscores');
 
   document.getElementById('btn-hs-back')!.onclick = () => showScreen('home');
   document.getElementById('btn-hs-refresh')!.onclick = () => refreshHighscoresView();
+  document.getElementById('hs-heading')!.onclick = () => {
+    hsHeadingTapCount += 1;
+    if (hsHeadingTapTimer !== null) window.clearTimeout(hsHeadingTapTimer);
+    hsHeadingTapTimer = window.setTimeout(() => {
+      hsHeadingTapCount = 0;
+    }, 1500);
+    if (hsHeadingTapCount >= 5) {
+      hsHeadingTapCount = 0;
+      document.getElementById('server-box')?.classList.toggle('hidden');
+    }
+  };
   document.getElementById('tab-hs-global')!.onclick = () => {
     hsMode = 'global';
     refreshHighscoresView();

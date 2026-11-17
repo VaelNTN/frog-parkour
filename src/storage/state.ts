@@ -61,7 +61,7 @@ export function loadFrogState(deviceId: string): FrogState {
     apiBaseUrl: defaultApi,
     skinId: 0,
     accessory: 'none',
-    playerName: 'Kikkerkoning',
+    playerName: 'FrogKing',
     soundEnabled: true,
     bestScore: 0,
     bestMeters: 0,
@@ -82,7 +82,7 @@ export function loadFrogState(deviceId: string): FrogState {
       playerName:
         typeof parsed.playerName === 'string' && parsed.playerName.trim()
           ? parsed.playerName.trim()
-          : 'Kikkerkoning',
+          : 'FrogKing',
       soundEnabled: parsed.soundEnabled !== false,
       bestScore: Math.max(0, Number(parsed.bestScore || 0)),
       bestMeters: Math.max(0, Number(parsed.bestMeters || 0)),
@@ -107,7 +107,7 @@ export function recordFrogScore(state: FrogState, score: number, meters: number,
   if (meters > state.bestMeters) state.bestMeters = meters;
   state.highscores.push({
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    playerName: state.playerName.trim() || 'Kikkerkoning',
+    playerName: state.playerName.trim() || 'FrogKing',
     score,
     meters,
     flies,
