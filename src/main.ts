@@ -213,11 +213,15 @@ function startHomePreview(): void {
       ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
       const bounce = Math.abs(Math.sin(phase));
+      const blink = bounce < 0.25 && (phase % (Math.PI * 3)) > Math.PI * 2.78;
       drawCartoonFrog(ctx, 75, 84 - bounce * 18, 34, {
         skin: getFrogSkin(state.skinId),
         accessory: state.accessory,
         airborne: bounce > 0.35,
         squashY: bounce < 0.14 ? 0.88 + bounce * 0.85 : 1 + bounce * 0.08,
+        eyeLookX: 0.03,
+        eyeLookY: bounce > 0.35 ? -0.02 : 0.01,
+        blink,
       });
     }
     homeAnimId = requestAnimationFrame(draw);

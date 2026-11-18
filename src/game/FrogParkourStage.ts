@@ -1299,61 +1299,150 @@ export class FrogParkourStage {
       }
     }
 
-    // Golden Shimmering Dragonflies
+    // Golden Shimmering Dragonflies (multi-part segmented body, compound eyes, 4 veined wings)
     for (const f of this.dragonflies) {
       if (f.collected) continue;
       if (f.x < this.cameraX - 50 || f.x > this.cameraX + width + 50) continue;
 
       const fx = f.x + Math.cos(this.clock * 2.5 + f.phase) * 5;
       const fy = f.y + Math.sin(this.clock * 4.2 + f.phase) * 7;
-      const wingFlap = Math.sin(this.clock * 32 + f.phase);
+      const foreFlap = Math.sin(this.clock * 36 + f.phase);
+      const hindFlap = Math.sin(this.clock * 36 + f.phase + 0.9);
+      const hoverTilt = Math.sin(this.clock * 3.1 + f.phase) * 0.1;
 
-      // Soft golden aura (no expensive shadowBlur)
-      ctx.fillStyle = 'rgba(250, 204, 21, 0.2)';
+      // Soft golden-iridescent aura (no expensive shadowBlur)
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.18)';
       ctx.beginPath();
-      ctx.arc(fx, fy, 17, 0, Math.PI * 2);
+      ctx.arc(fx, fy, 20, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(254, 240, 138, 0.35)';
+      ctx.fillStyle = 'rgba(103, 232, 249, 0.22)';
       ctx.beginPath();
-      ctx.arc(fx, fy, 11, 0, Math.PI * 2);
+      ctx.arc(fx, fy, 13, 0, Math.PI * 2);
       ctx.fill();
 
-      // Iridescent fluttering wings
-      ctx.fillStyle = 'rgba(224, 242, 254, 0.78)';
-      ctx.strokeStyle = 'rgba(253, 224, 71, 0.7)';
-      ctx.lineWidth = 1;
+      ctx.save();
+      ctx.translate(fx, fy);
+      ctx.rotate(hoverTilt);
+
+      // 4 multi-wing translucent iridescent wings (hindwings then forewings)
       for (const side of [-1, 1]) {
+        // Hindwing (slightly smaller, trailing)
+        const hwAngle = side * (-0.85 + hindFlap * 0.34);
+        ctx.save();
+        ctx.translate(-2.5, side * 1.2);
+        ctx.rotate(hwAngle);
+        ctx.fillStyle = 'rgba(165, 243, 252, 0.62)';
+        ctx.strokeStyle = 'rgba(253, 224, 71, 0.78)';
+        ctx.lineWidth = 0.95;
         ctx.beginPath();
-        ctx.ellipse(
-          fx - 2,
-          fy - 5 * side - wingFlap * 2.5 * side,
-          8.5,
-          3.2,
-          side * (0.45 + wingFlap * 0.25),
-          0,
-          Math.PI * 2
-        );
+        ctx.ellipse(0, side * 6.5, 3.1, 7.2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+        // Delicate hindwing veins
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(0, side * 1.5);
+        ctx.lineTo(0, side * 12);
+        ctx.moveTo(0, side * 5);
+        ctx.lineTo(1.8, side * 8.5);
+        ctx.moveTo(0, side * 7.5);
+        ctx.lineTo(-1.6, side * 10.5);
+        ctx.stroke();
+        ctx.restore();
+
+        // Forewing (larger, leading)
+        const fwAngle = side * (-0.42 + foreFlap * 0.38);
+        ctx.save();
+        ctx.translate(1.5, side * 1.4);
+        ctx.rotate(fwAngle);
+        ctx.fillStyle = 'rgba(224, 242, 254, 0.76)';
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(0, side * 8.2, 3.5, 9.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Delicate forewing veins & iridescent shimmer tip
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.lineWidth = 0.75;
+        ctx.beginPath();
+        ctx.moveTo(0, side * 1.5);
+        ctx.lineTo(0.4, side * 16);
+        ctx.moveTo(0.2, side * 6);
+        ctx.lineTo(2.2, side * 10);
+        ctx.moveTo(0.2, side * 9.5);
+        ctx.lineTo(-2.0, side * 13);
+        ctx.stroke();
+        ctx.restore();
       }
 
-      // Dragonfly tail & head
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
+      // Segmented metallic/iridescent banded abdomen (5 segments)
+      for (let seg = 4; seg >= 0; seg--) {
+        const sx = -4 - seg * 3.1;
+        const sy = Math.sin(this.clock * 5 + f.phase + seg * 0.4) * 0.4;
+        const srX = 2.1 - seg * 0.22;
+        const srY = 1.65 - seg * 0.16;
+        ctx.fillStyle = seg % 2 === 0 ? '#f59e0b' : '#0d9488';
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, srX, srY, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Metallic glint dot
+        ctx.fillStyle = seg % 2 === 0 ? '#fef08a' : '#5eead4';
+        ctx.beginPath();
+        ctx.arc(sx, sy - srY * 0.35, srY * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Twin tail cerci
+      ctx.strokeStyle = '#92400e';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(fx - 10, fy + 1);
-      ctx.lineTo(fx + 2, fy);
+      ctx.moveTo(-17.5, 0);
+      ctx.lineTo(-20.2, -1.4);
+      ctx.moveTo(-17.5, 0);
+      ctx.lineTo(-20.2, 1.4);
       ctx.stroke();
 
-      ctx.fillStyle = '#fef08a';
+      // Metallic Thorax
+      ctx.fillStyle = '#0f766e';
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 1.1;
       ctx.beginPath();
-      ctx.arc(fx + 4, fy, 4.8, 0, Math.PI * 2);
+      ctx.ellipse(1.2, 0, 4.4, 3.2, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.fillStyle = '#5eead4';
       ctx.beginPath();
-      ctx.arc(fx + 5.5, fy - 1.5, 1.8, 0, Math.PI * 2);
+      ctx.ellipse(0.8, -1.1, 2.3, 1.0, -0.1, 0, Math.PI * 2);
       ctx.fill();
+
+      // Head & Big Compound Eyes
+      ctx.fillStyle = '#facc15';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(6.2, 0, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      for (const side of [-1, 1]) {
+        ctx.fillStyle = '#be123c';
+        ctx.beginPath();
+        ctx.arc(6.9, side * 1.9, 1.85, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(7.4, side * 1.6 - 0.5, 0.65, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
     }
 
     // Glossy animated pink sticky tongue curve with sparkle droplets
@@ -1473,6 +1562,8 @@ export class FrogParkourStage {
       eyeLookY = -0.04;
     }
 
+    const idleBlink = this.grounded && !this.charging && this.clock % 3.8 > 3.66;
+
     // Frog
     drawCartoonFrog(ctx, this.frogX, this.frogY, 24, {
       skin: this.skin,
@@ -1483,7 +1574,9 @@ export class FrogParkourStage {
       eyeLookX,
       eyeLookY,
       charging: this.charging,
+      chargeRatio: this.chargeRatio,
       mouthOpen: this.grappling,
+      blink: idleBlink,
     });
 
     // Particles (water splash droplets, sparkles, double-hop rings)
