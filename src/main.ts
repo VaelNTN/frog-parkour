@@ -21,14 +21,26 @@ type HsMode = 'global' | 'local';
 
 let state: FrogState;
 let hsMode: HsMode = 'global';
+let activeScreen: ScreenName = 'home';
 let optionsFromPlay = false;
 let stage: FrogParkourStage | null = null;
 let homeAnimId: number | null = null;
 let hsPollInterval: number | null = null;
+let hsRequestId = 0;
 let hsHeadingTapCount = 0;
 let hsHeadingTapTimer: number | null = null;
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderFrogThumb(canvas: HTMLCanvasElement, skinId: number, size: number): void {
+  if (size <= 0) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const target = Math.round(size * dpr);
   if (canvas.width !== target || canvas.height !== target) {
@@ -136,7 +148,20 @@ function syncSoundButton(): void {
   if (btn) btn.textContent = state.soundEnabled ? '🔊' : '🔇';
 }
 
+function clearHighscoresTimers(): void {
+  if (hsPollInterval !== null) {
+    clearInterval(hsPollInterval);
+    hsPollInterval = null;
+  }
+  if (hsHeadingTapTimer !== null) {
+    clearTimeout(hsHeadingTapTimer);
+    hsHeadingTapTimer = null;
+  }
+  hsHeadingTapCount = 0;
+}
+
 function showScreen(name: ScreenName): void {
+  activeScreen = name;
   document.querySelectorAll('.screen').forEach((el) => el.classList.add('hidden'));
   document.getElementById(`screen-${name}`)?.classList.remove('hidden');
 
@@ -146,12 +171,10 @@ function showScreen(name: ScreenName): void {
   if (name === 'home') startHomePreview();
   else stopHomePreview();
 
+  clearHighscoresTimers();
   if (name === 'highscores') {
     refreshHighscoresView();
     hsPollInterval = window.setInterval(() => refreshHighscoresView(), 12000);
-  } else if (hsPollInterval !== null) {
-    clearInterval(hsPollInterval);
-    hsPollInterval = null;
   }
 }
 
@@ -167,17 +190,19 @@ function startHomePreview(): void {
   }
 
   const size = 150;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const targetSize = Math.round(size * dpr);
-  if (canvas.width !== targetSize || canvas.height !== targetSize) {
-    canvas.width = targetSize;
-    canvas.height = targetSize;
-  }
   const ctx = canvas.getContext('2d');
-
   let phase = 0;
-  const draw = () => {
-    phase += 0.04;
+  let lastTime = performance.now();
+
+  const draw = (now: number) => {
+    if (activeScreen !== 'home') {
+      homeAnimId = null;
+      return;
+    }
+    const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
+    lastTime = now;
+    phase += dt * 2.4;
+
     const currentDpr = Math.min(window.devicePixelRatio || 1, 2);
     const desired = Math.round(size * currentDpr);
     if (canvas.width !== desired || canvas.height !== desired) {
@@ -187,15 +212,17 @@ function startHomePreview(): void {
     if (ctx) {
       ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
       ctx.clearRect(0, 0, size, size);
-      drawCartoonFrog(ctx, 75, 84 - Math.abs(Math.sin(phase)) * 18, 34, {
+      const bounce = Math.abs(Math.sin(phase));
+      drawCartoonFrog(ctx, 75, 84 - bounce * 18, 34, {
         skin: getFrogSkin(state.skinId),
         accessory: state.accessory,
-        airborne: Math.abs(Math.sin(phase)) > 0.35,
+        airborne: bounce > 0.35,
+        squashY: bounce < 0.14 ? 0.88 + bounce * 0.85 : 1 + bounce * 0.08,
       });
     }
     homeAnimId = requestAnimationFrame(draw);
   };
-  draw();
+  homeAnimId = requestAnimationFrame(draw);
 }
 
 function stopHomePreview(): void {
@@ -212,7 +239,7 @@ function renderOptions(): void {
   for (const s of FROG_SKINS) {
     const btn = document.createElement('button');
     btn.className = `skin-card ${state.skinId === s.id ? 'selected' : ''}`;
-    btn.innerHTML = `<canvas width="48" height="48"></canvas><span style="font-weight:700;font-size:0.9rem;">${s.name}</span>`;
+    btn.innerHTML = `<canvas width="48" height="48"></canvas><span style="font-weight:700;font-size:0.9rem;">${escapeHtml(s.name)}</span>`;
     renderFrogThumb(btn.querySelector('canvas')!, s.id, 48);
     btn.onclick = () => {
       state.skinId = s.id;
@@ -237,6 +264,15 @@ function renderOptions(): void {
   }
 }
 
+function normalizePlayerNameInput(): void {
+  const input = document.getElementById('player-name-input') as HTMLInputElement | null;
+  if (!input) return;
+  const clean = input.value.trim().slice(0, 20) || 'FrogKing';
+  state.playerName = clean;
+  input.value = clean;
+  saveFrogState(state);
+}
+
 function startStage(): void {
   document.getElementById('gameover-card')!.classList.add('hidden');
   syncSoundButton();
@@ -252,16 +288,19 @@ function startStage(): void {
           document.getElementById('hud-sub')!.textContent = `${meters.toFixed(1)} m • ${flies} flies • Combo x${combo}`;
         },
         onJump: () => soundFX.playJump(),
+        onBounce: () => soundFX.playBounce(),
         onTongue: () => soundFX.playTongue(),
         onFlyCollect: () => soundFX.playFly(),
         onGameOver: (score, meters, flies) => {
           soundFX.playSplash();
           recordFrogScore(state, score, meters, flies);
           document.getElementById('gameover-text')!.textContent =
-            score >= state.bestScore ? `New Record: ${score} pts (${meters.toFixed(1)}m)!` : `Score: ${score} pts (${meters.toFixed(1)}m)`;
+            score >= state.bestScore && score > 0
+              ? `New Record: ${score} pts (${meters.toFixed(1)}m)!`
+              : `Score: ${score} pts (${meters.toFixed(1)}m)`;
           document.getElementById('gameover-card')!.classList.remove('hidden');
           if (state.apiBaseUrl && score > 0) {
-            submitGlobalFrogScore(state.apiBaseUrl, {
+            void submitGlobalFrogScore(state.apiBaseUrl, {
               deviceId: state.deviceId,
               playerName: state.playerName,
               score,
@@ -292,6 +331,7 @@ function updateHsStatusBanner(online: boolean): void {
 }
 
 async function refreshHighscoresView(): Promise<void> {
+  const requestId = ++hsRequestId;
   const list = document.getElementById('hs-list')!;
   (document.getElementById('server-url-input') as HTMLInputElement).value = state.apiBaseUrl;
 
@@ -311,8 +351,8 @@ async function refreshHighscoresView(): Promise<void> {
           <div class="hs-left">
             <span class="hs-rank">#${i + 1}</span>
             <div>
-              <div class="hs-name">${h.playerName}</div>
-              <div class="hs-meta">${getFrogSkin(h.skinId).name} • ${h.meters.toFixed(1)} m</div>
+              <div class="hs-name">${escapeHtml(h.playerName)}</div>
+              <div class="hs-meta">${escapeHtml(getFrogSkin(h.skinId).name)} • ${h.meters.toFixed(1)} m</div>
             </div>
           </div>
           <div class="hs-score">${h.score} pts</div>
@@ -330,6 +370,8 @@ async function refreshHighscoresView(): Promise<void> {
 
   try {
     const res = await fetchGlobalFrogHighscores(state.apiBaseUrl, state.deviceId, 50);
+    if (requestId !== hsRequestId || hsMode !== 'global' || activeScreen !== 'highscores') return;
+
     updateHsStatusBanner(true);
     const entries: GlobalFrogEntry[] = res.entries || [];
     if (entries.length === 0) {
@@ -341,17 +383,18 @@ async function refreshHighscoresView(): Promise<void> {
         (e) => `
         <div class="hs-row ${e.deviceId === state.deviceId ? 'me' : ''}">
           <div class="hs-left">
-            <span class="hs-rank">#${e.rank}</span>
+            <span class="hs-rank">#${Number(e.rank) || 0}</span>
             <div>
-              <div class="hs-name">${e.playerName}</div>
-              <div class="hs-meta">${getFrogSkin(e.skinId).name} • ${e.meters.toFixed(1)} m</div>
+              <div class="hs-name">${escapeHtml(String(e.playerName || 'FrogKing'))}</div>
+              <div class="hs-meta">${escapeHtml(getFrogSkin(Number(e.skinId)).name)} • ${Number(e.meters || 0).toFixed(1)} m</div>
             </div>
           </div>
-          <div class="hs-score">${e.score} pts</div>
+          <div class="hs-score">${Number(e.score) || 0} pts</div>
         </div>`
       )
       .join('');
   } catch {
+    if (requestId !== hsRequestId || hsMode !== 'global' || activeScreen !== 'highscores') return;
     updateHsStatusBanner(false);
     list.innerHTML = `<p style="text-align:center;color:#fca5a5;margin-top:24px;">Offline or leaderboard unreachable. Check the Local tab!</p>`;
   }
@@ -372,19 +415,22 @@ async function init(): Promise<void> {
   };
   document.getElementById('btn-home-highscores')!.onclick = () => showScreen('highscores');
 
-  document.getElementById('btn-options-back')!.onclick = () => showScreen(optionsFromPlay ? 'game' : 'home');
-  document.getElementById('btn-options-start')!.onclick = () => showScreen('game');
+  document.getElementById('btn-options-back')!.onclick = () => {
+    normalizePlayerNameInput();
+    showScreen(optionsFromPlay ? 'game' : 'home');
+  };
+  document.getElementById('btn-options-start')!.onclick = () => {
+    normalizePlayerNameInput();
+    showScreen('game');
+  };
 
   const nameInput = document.getElementById('player-name-input') as HTMLInputElement;
   nameInput.addEventListener('input', (e) => {
     state.playerName = (e.target as HTMLInputElement).value.slice(0, 20);
     saveFrogState(state);
   });
-  nameInput.addEventListener('blur', (e) => {
-    const clean = (e.target as HTMLInputElement).value.trim().slice(0, 20) || 'FrogKing';
-    state.playerName = clean;
-    (e.target as HTMLInputElement).value = clean;
-    saveFrogState(state);
+  nameInput.addEventListener('blur', () => {
+    normalizePlayerNameInput();
   });
 
   document.getElementById('btn-game-menu')!.onclick = () => showScreen('home');
@@ -402,6 +448,7 @@ async function init(): Promise<void> {
   document.getElementById('btn-retry')!.onclick = () => {
     document.getElementById('gameover-card')!.classList.add('hidden');
     stage?.resetGame();
+    stage?.start();
   };
   document.getElementById('btn-go-menu')!.onclick = () => showScreen('home');
   document.getElementById('btn-go-hs')!.onclick = () => showScreen('highscores');
