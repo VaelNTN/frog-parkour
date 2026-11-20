@@ -51,27 +51,46 @@ export async function fetchGlobalFrogHighscores(
   return (await res.json()) as GlobalFrogResponse;
 }
 
-export async function submitGlobalFrogScore(
-  baseUrl: string,
-  payload: {
-    deviceId: string;
-    playerName: string;
-    score: number;
-    meters: number;
-    flies: number;
-    skinId: number;
-    accessory: FrogAccessoryId;
+const PENDING_KEY = 'frog_parkour_pending_scores_v1';
+
+export interface FrogScorePayload {
+  deviceId: string;
+  playerName: string;
+  score: number;
+  meters: number;
+  flies: number;
+  skinId: number;
+  accessory: FrogAccessoryId;
+}
+
+function loadPendingScores(): FrogScorePayload[] {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.slice(0, 5) : [];
+  } catch {
+    return [];
   }
-): Promise<boolean> {
-  const base = cleanUrl(baseUrl);
-  if (
-    !base ||
-    !Number.isFinite(payload.score) ||
-    !Number.isFinite(payload.meters) ||
-    !Number.isFinite(payload.flies)
-  ) {
-    return false;
+}
+
+function savePendingScores(items: FrogScorePayload[]): void {
+  try {
+    if (items.length === 0) localStorage.removeItem(PENDING_KEY);
+    else localStorage.setItem(PENDING_KEY, JSON.stringify(items.slice(0, 5)));
+  } catch {
+    // Ignore storage quota issues
   }
+}
+
+function enqueuePendingScore(payload: FrogScorePayload): void {
+  const existing = loadPendingScores();
+  existing.push(payload);
+  existing.sort((a, b) => b.score - a.score);
+  savePendingScores(existing.slice(0, 5));
+}
+
+async function postFrogScore(base: string, payload: FrogScorePayload): Promise<boolean> {
   const cleanScore = Math.round(payload.score);
   if (cleanScore <= 0) return false;
   try {
@@ -90,7 +109,39 @@ export async function submitGlobalFrogScore(
     });
     return res.ok;
   } catch {
-    // Offline fallback stays silent
     return false;
   }
 }
+
+export async function submitGlobalFrogScore(
+  baseUrl: string,
+  payload: FrogScorePayload
+): Promise<boolean> {
+  const base = cleanUrl(baseUrl);
+  if (
+    !base ||
+    !Number.isFinite(payload.score) ||
+    !Number.isFinite(payload.meters) ||
+    !Number.isFinite(payload.flies)
+  ) {
+    return false;
+  }
+  if (Math.round(payload.score) <= 0) return false;
+  const ok = await postFrogScore(base, payload);
+  if (!ok) enqueuePendingScore(payload);
+  return ok;
+}
+
+export async function flushPendingFrogScores(baseUrl: string): Promise<void> {
+  const base = cleanUrl(baseUrl);
+  if (!base) return;
+  const pending = loadPendingScores();
+  if (pending.length === 0) return;
+  const remaining: FrogScorePayload[] = [];
+  for (const item of pending) {
+    const ok = await postFrogScore(base, item);
+    if (!ok) remaining.push(item);
+  }
+  savePendingScores(remaining);
+}
+

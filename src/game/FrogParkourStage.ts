@@ -107,6 +107,7 @@ export class FrogParkourStage {
   private height = 0;
   private dpr = 1;
   private active = false;
+  private paused = false;
   private rafId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private lastTime = 0;
@@ -205,9 +206,45 @@ export class FrogParkourStage {
     this.accessory = opts.accessory;
   }
 
+  public setPaused(p: boolean): void {
+    this.paused = p;
+    if (p) {
+      this.charging = false;
+      this.chargeRatio = 0;
+      this.activePointerId = null;
+      this.keyHeld = false;
+    } else {
+      this.lastTime = performance.now();
+    }
+  }
+
+  public isPaused(): boolean {
+    return this.paused;
+  }
+
+  public isDead(): boolean {
+    return this.dead;
+  }
+
+  private getLayoutBands(hInput?: number): {
+    h: number;
+    waterY: number;
+    hudClearY: number;
+    minPlatY: number;
+    maxPlatY: number;
+  } {
+    const h = Math.max(260, hInput ?? (this.height || 640));
+    const isShort = h < 480;
+    const waterY = h - Math.max(26, Math.min(44, Math.round(h * 0.085)));
+    const hudClearY = isShort ? 74 : 124;
+    const minPlatY = Math.max(hudClearY + 34, Math.round(h * (isShort ? 0.44 : 0.4)));
+    const maxPlatY = Math.max(minPlatY + 32, waterY - 36);
+    return { h, waterY, hudClearY, minPlatY, maxPlatY };
+  }
+
   public resetGame(): void {
-    const baseH = Math.max(420, this.height || 640);
-    const startY = baseH * 0.68;
+    const { minPlatY, maxPlatY } = this.getLayoutBands();
+    const startY = minPlatY + (maxPlatY - minPlatY) * 0.72;
     this.platforms = [
       {
         x: 40,
@@ -252,6 +289,7 @@ export class FrogParkourStage {
     this.grappleTime = 0;
     this.dead = false;
     this.splashed = false;
+    this.paused = false;
 
     this.cameraX = 0;
     this.maxMeters = 0;
@@ -265,19 +303,23 @@ export class FrogParkourStage {
 
   private ensureWorldGenerated(): void {
     const targetX = this.cameraX + Math.max(900, (this.width || 400) + 600);
-    const baseH = Math.max(420, this.height || 640);
+    const { h, hudClearY, minPlatY, maxPlatY } = this.getLayoutBands();
+    const ySpan = Math.max(40, maxPlatY - minPlatY);
+    const maxStep = Math.min(130, ySpan * 0.65);
+
     while (this.generatedUpToX < targetX) {
       const prev = this.platforms[this.platforms.length - 1];
       const gap = 85 + Math.random() * 145;
       const nx = prev.x + prev.w + gap;
       const ny = Math.max(
-        baseH * 0.38,
-        Math.min(baseH * 0.76, prev.baseY + (Math.random() - 0.5) * 140)
+        minPlatY,
+        Math.min(maxPlatY, prev.baseY + (Math.random() - 0.5) * maxStep * 1.6)
       );
       const nw = Math.max(72, 130 - this.maxMeters * 0.18 + Math.random() * 45);
       const roll = Math.random();
       const kind: PlatformKind =
         roll < 0.24 ? 'bouncy' : roll < 0.45 ? 'moving' : roll < 0.72 ? 'lily' : 'rock';
+      const maxMoveAmp = Math.min(26 + Math.random() * 20, Math.max(10, ySpan * 0.18));
 
       this.platforms.push({
         x: nx,
@@ -286,7 +328,7 @@ export class FrogParkourStage {
         w: nw,
         h: 20,
         kind,
-        moveAmp: kind === 'moving' ? 26 + Math.random() * 22 : 0,
+        moveAmp: kind === 'moving' ? maxMoveAmp : 0,
         baseY: ny,
         phase: Math.random() * Math.PI * 2,
         sinking: 0,
@@ -296,20 +338,28 @@ export class FrogParkourStage {
         lotusSide: Math.random() < 0.5 ? 1 : -1,
       });
 
-      // Place a grapple lotus hook above wide gaps (clamped below HUD)
-      if (gap > 140) {
+      // Place a grapple lotus hook above wide gaps (strictly below HUD)
+      if (gap > 135) {
+        const hookY = Math.max(
+          hudClearY + 18,
+          Math.min(prev.baseY, ny) - Math.min(125, h * 0.25)
+        );
         this.hooks.push({
           x: prev.x + prev.w + gap * 0.5,
-          y: Math.max(105, Math.min(prev.baseY, ny) - 130),
+          y: hookY,
           used: false,
           phase: Math.random() * Math.PI * 2,
         });
       }
 
       if (Math.random() < 0.75) {
+        const flyY = Math.max(
+          hudClearY + 16,
+          Math.min(prev.baseY, ny) - 42 - Math.random() * Math.min(50, h * 0.12)
+        );
         this.dragonflies.push({
           x: prev.x + prev.w + gap * 0.55,
-          y: Math.max(88, Math.min(prev.baseY, ny) - 55 - Math.random() * 55),
+          y: flyY,
           collected: false,
           phase: Math.random() * Math.PI * 2,
         });
@@ -381,6 +431,7 @@ export class FrogParkourStage {
     const h = this.canvas.clientHeight || rect.height;
     if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
 
+    const prevH = this.height;
     const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
     const targetW = Math.max(1, Math.round(w * nextDpr));
     const targetH = Math.max(1, Math.round(h * nextDpr));
@@ -391,6 +442,39 @@ export class FrogParkourStage {
     if (this.canvas.width !== targetW || this.canvas.height !== targetH) {
       this.canvas.width = targetW;
       this.canvas.height = targetH;
+    }
+
+    // Proportionally remap vertical coordinates if viewport height changed significantly (portrait <-> landscape)
+    if (prevH > 0 && Math.abs(h - prevH) > 24 && this.platforms.length > 0) {
+      const oldBands = this.getLayoutBands(prevH);
+      const newBands = this.getLayoutBands(h);
+      const oldSpan = Math.max(1, oldBands.maxPlatY - oldBands.minPlatY);
+      const newSpan = Math.max(1, newBands.maxPlatY - newBands.minPlatY);
+      const remapPlatY = (val: number) => {
+        const t = Math.max(-0.2, Math.min(1.1, (val - oldBands.minPlatY) / oldSpan));
+        return Math.max(newBands.hudClearY + 24, Math.min(newBands.waterY - 26, newBands.minPlatY + t * newSpan));
+      };
+      for (const p of this.platforms) {
+        p.baseY = remapPlatY(p.baseY);
+        p.y = remapPlatY(p.y);
+        p.prevY = p.y;
+        p.moveAmp = Math.min(p.moveAmp, Math.max(10, newSpan * 0.18));
+      }
+      for (const hk of this.hooks) {
+        hk.y = Math.max(newBands.hudClearY + 16, Math.min(newBands.minPlatY, (hk.y / prevH) * h));
+      }
+      for (const df of this.dragonflies) {
+        df.y = Math.max(newBands.hudClearY + 14, Math.min(newBands.maxPlatY - 24, (df.y / prevH) * h));
+      }
+      if (!this.dead) {
+        if (this.grounded) {
+          const sup = this.findSupportingPlatform();
+          if (sup) this.frogY = sup.y + sup.bobOffset - FROG_FOOT_OFFSET;
+          else this.frogY = Math.min(newBands.maxPlatY - FROG_FOOT_OFFSET, (this.frogY / prevH) * h);
+        } else {
+          this.frogY = Math.max(newBands.hudClearY, Math.min(newBands.waterY - 24, (this.frogY / prevH) * h));
+        }
+      }
     }
   }
 
@@ -405,7 +489,7 @@ export class FrogParkourStage {
   }
 
   private beginAction(): void {
-    if (!this.active || this.dead) return;
+    if (!this.active || this.dead || this.paused) return;
     if (this.grounded) {
       this.charging = true;
       this.chargeRatio = 0.15;
@@ -462,7 +546,7 @@ export class FrogParkourStage {
   }
 
   private endAction(): void {
-    if (!this.active || this.dead) return;
+    if (!this.active || this.dead || this.paused) return;
     if (this.grappling) {
       this.grappling = false;
       this.grappleTarget = null;
@@ -502,7 +586,7 @@ export class FrogParkourStage {
 
   private onPointerDown(ev: PointerEvent): void {
     ev.preventDefault();
-    if (!this.active || this.dead) return;
+    if (!this.active || this.dead || this.paused) return;
     if (this.activePointerId !== null) return;
     this.activePointerId = ev.pointerId;
     this.beginAction();
@@ -515,7 +599,7 @@ export class FrogParkourStage {
   }
 
   private onKeyDown(ev: KeyboardEvent): void {
-    if (!this.active || this.dead || ev.repeat) return;
+    if (!this.active || this.dead || this.paused || ev.repeat) return;
     const tag = (ev.target as HTMLElement | null)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     if (ev.code === 'Space' || ev.code === 'ArrowUp' || ev.code === 'KeyW') {
@@ -535,7 +619,7 @@ export class FrogParkourStage {
   }
 
   private getWaterY(): number {
-    return (this.height || 640) - 40;
+    return this.getLayoutBands().waterY;
   }
 
   private findSupportingPlatform(): Platform | undefined {
@@ -636,9 +720,15 @@ export class FrogParkourStage {
     if (!this.active) return;
 
     const rawDt = (now - this.lastTime) / 1000;
-    const dt = Number.isFinite(rawDt) ? Math.max(0, Math.min(rawDt, 0.05)) : 0;
+    const dt = this.paused ? 0 : (Number.isFinite(rawDt) ? Math.max(0, Math.min(rawDt, 0.05)) : 0);
     this.lastTime = now;
     this.clock += dt;
+
+    if (this.paused) {
+      this.draw();
+      this.rafId = requestAnimationFrame(this.loop);
+      return;
+    }
 
     // Gentle ambient pond raindrops/ripples
     this.ambientRippleTimer += dt;
@@ -896,17 +986,32 @@ export class FrogParkourStage {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Enchanted twilight/morning pond sky gradient
+    // 1. Dynamic time-of-day pond sky gradient (cycles every 65m: Emerald Pond -> Sunset Marsh -> Starry Midnight)
+    const biomeIdx = Math.floor(this.maxMeters / 65) % 3;
     const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
-    skyGrad.addColorStop(0, '#071b2e');
-    skyGrad.addColorStop(0.32, '#0b3b49');
-    skyGrad.addColorStop(0.62, '#115e59');
-    skyGrad.addColorStop(0.84, '#2d6a5b');
-    skyGrad.addColorStop(1, '#0c4a6e');
+    if (biomeIdx === 0) {
+      skyGrad.addColorStop(0, '#071b2e');
+      skyGrad.addColorStop(0.32, '#0b3b49');
+      skyGrad.addColorStop(0.62, '#115e59');
+      skyGrad.addColorStop(0.84, '#2d6a5b');
+      skyGrad.addColorStop(1, '#0c4a6e');
+    } else if (biomeIdx === 1) {
+      skyGrad.addColorStop(0, '#1e1035');
+      skyGrad.addColorStop(0.32, '#581c4f');
+      skyGrad.addColorStop(0.62, '#9a3412');
+      skyGrad.addColorStop(0.84, '#c2410c');
+      skyGrad.addColorStop(1, '#431407');
+    } else {
+      skyGrad.addColorStop(0, '#040717');
+      skyGrad.addColorStop(0.34, '#0f172a');
+      skyGrad.addColorStop(0.66, '#1e1b4b');
+      skyGrad.addColorStop(0.86, '#1e3a5f');
+      skyGrad.addColorStop(1, '#082f49');
+    }
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // Horizon dawn glow behind hills
+    // Horizon dawn/sunset/moonlight glow behind hills
     const horizonGrad = ctx.createRadialGradient(
       width * 0.72,
       height * 0.68,
@@ -915,9 +1020,19 @@ export class FrogParkourStage {
       height * 0.68,
       Math.max(width, height) * 0.55
     );
-    horizonGrad.addColorStop(0, 'rgba(251, 191, 36, 0.22)');
-    horizonGrad.addColorStop(0.5, 'rgba(52, 211, 153, 0.08)');
-    horizonGrad.addColorStop(1, 'rgba(7, 27, 46, 0)');
+    if (biomeIdx === 1) {
+      horizonGrad.addColorStop(0, 'rgba(251, 146, 60, 0.34)');
+      horizonGrad.addColorStop(0.5, 'rgba(244, 63, 94, 0.12)');
+      horizonGrad.addColorStop(1, 'rgba(30, 16, 53, 0)');
+    } else if (biomeIdx === 2) {
+      horizonGrad.addColorStop(0, 'rgba(56, 189, 248, 0.2)');
+      horizonGrad.addColorStop(0.5, 'rgba(139, 92, 246, 0.1)');
+      horizonGrad.addColorStop(1, 'rgba(4, 7, 23, 0)');
+    } else {
+      horizonGrad.addColorStop(0, 'rgba(251, 191, 36, 0.22)');
+      horizonGrad.addColorStop(0.5, 'rgba(52, 211, 153, 0.08)');
+      horizonGrad.addColorStop(1, 'rgba(7, 27, 46, 0)');
+    }
     ctx.fillStyle = horizonGrad;
     ctx.fillRect(0, 0, width, height);
 
@@ -1560,6 +1675,61 @@ export class FrogParkourStage {
       tilt = -0.1 * this.chargeRatio;
       eyeLookX = 0.06;
       eyeLookY = -0.04;
+    }
+
+    // Subtle landing shadow projected onto any platform below airborne frog
+    if (!this.grounded && !this.dead) {
+      let shadowPlat: Platform | null = null;
+      let shadowY = Infinity;
+      for (const p of this.platforms) {
+        const sy = p.y + p.bobOffset;
+        if (this.frogX >= p.x - 8 && this.frogX <= p.x + p.w + 8 && sy > this.frogY + 12 && sy < shadowY) {
+          shadowY = sy;
+          shadowPlat = p;
+        }
+      }
+      if (shadowPlat) {
+        const distY = Math.max(0, shadowY - (this.frogY + FROG_FOOT_OFFSET));
+        const shadowScale = Math.max(0.35, 1 - distY / 280);
+        ctx.fillStyle = `rgba(2, 6, 23, ${0.38 * shadowScale})`;
+        ctx.beginPath();
+        ctx.ellipse(this.frogX, shadowY + 3, 20 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Early grapple hint badge for first few lotus hooks
+    if (!this.dead && this.maxMeters < 45) {
+      for (const h of this.hooks) {
+        if (!h.used && Math.hypot(h.x - this.frogX, h.y - this.frogY) < 250) {
+          ctx.save();
+          ctx.font = '800 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+          ctx.beginPath();
+          ctx.roundRect(h.x - 52, h.y - 34, 104, 18, 9);
+          ctx.fill();
+          ctx.fillStyle = '#fbcfe8';
+          ctx.fillText('TAP TO GRAPPLE', h.x, h.y - 21);
+          ctx.restore();
+          break;
+        }
+      }
+    }
+
+    // First-jump floating tutorial hint before frog leaves starting rock
+    if (!this.dead && this.maxMeters < 1.5 && !this.charging && this.grounded) {
+      const bob = Math.sin(this.clock * 3.5) * 4;
+      ctx.save();
+      ctx.font = '700 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx.beginPath();
+      ctx.roundRect(this.frogX - 96, this.frogY - 64 + bob, 192, 24, 12);
+      ctx.fill();
+      ctx.fillStyle = '#dcfce7';
+      ctx.fillText('Hold to charge • Tap mid-air!', this.frogX, this.frogY - 48 + bob);
+      ctx.restore();
     }
 
     const idleBlink = this.grounded && !this.charging && this.clock % 3.8 > 3.66;
